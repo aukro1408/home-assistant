@@ -8,7 +8,70 @@ type Message = {
   content: string;
 };
 
-export function AIChatWidget() {
+type UsageEntry = { usage: number; cost: number; meterReading?: number };
+
+type AppContext = {
+  electricityData: Record<string, UsageEntry>;
+  waterData: Record<string, UsageEntry>;
+  electricityPrice: string;
+  waterPrice: string;
+  plannerTasks: Record<string, Array<{ id: string; title: string; status: string }>>;
+  electricityMonth: number;
+  electricityYear: number;
+  waterMonth: number;
+  waterYear: number;
+};
+
+function formatSmartHomeContext(context: AppContext): string {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  
+  // Get current month data
+  const elecKey = `${context.electricityYear}-${String(context.electricityMonth).padStart(2, '0')}`;
+  const waterKey = `${context.waterYear}-${String(context.waterMonth).padStart(2, '0')}`;
+  
+  const elecEntry = context.electricityData[elecKey];
+  const waterEntry = context.waterData[waterKey];
+  
+  // Get today's planner tasks
+  const todayKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayTasks = context.plannerTasks[todayKey] || [];
+  
+  // Count tasks by status
+  const plannedTasks = todayTasks.filter(t => t.status === 'planned').length;
+  const inProgressTasks = todayTasks.filter(t => t.status === 'in_progress').length;
+  const completedTasks = todayTasks.filter(t => t.status === 'completed').length;
+  
+  let contextStr = 'Home status: Всё в порядке\n';
+  
+  if (elecEntry) {
+    contextStr += `Electricity usage this month: ${elecEntry.usage} kWh (cost: ${elecEntry.cost} UAH)\n`;
+    contextStr += `Electricity price: ${context.electricityPrice} UAH/kWh\n`;
+  } else {
+    contextStr += `Electricity usage this month: No data recorded\n`;
+  }
+  
+  if (waterEntry) {
+    contextStr += `Water usage this month: ${waterEntry.usage} m³ (cost: ${waterEntry.cost} UAH)\n`;
+    contextStr += `Water price: ${context.waterPrice} UAH/m³\n`;
+  } else {
+    contextStr += `Water usage this month: No data recorded\n`;
+  }
+  
+  if (todayTasks.length > 0) {
+    contextStr += `Planner tasks today: ${todayTasks.length} total (${plannedTasks} planned, ${inProgressTasks} in progress, ${completedTasks} completed)\n`;
+    if (todayTasks.length > 0) {
+      contextStr += 'Tasks: ' + todayTasks.map(t => `${t.title} (${t.status})`).join(', ') + '\n';
+    }
+  } else {
+    contextStr += 'Planner tasks today: No tasks scheduled\n';
+  }
+  
+  return contextStr;
+}
+
+export function AIChatWidget({ appContext }: { appContext: AppContext }) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -37,6 +100,45 @@ export function AIChatWidget() {
     setIsLoading(true);
 
     try {
+      // Fetch weather data
+      let weatherContext = "Weather: Data unavailable";
+      try {
+        const weatherResponse = await fetch(
+          `https://api.weatherapi.com/v1/forecast.json?key=${process.env.NEXT_PUBLIC_WEATHER_API_KEY}&q=50.4501,30.5234&lang=ru&days=1`
+        );
+        if (weatherResponse.ok) {
+          const weatherData = await weatherResponse.json();
+          const temp = Math.round(weatherData.current.temp_c);
+          const condition = weatherData.current.condition.text;
+          const humidity = weatherData.current.humidity;
+          const wind = Math.round(weatherData.current.wind_kph);
+          weatherContext = `Weather: ${condition}, ${temp}°C, humidity ${humidity}%, wind ${wind} km/h`;
+        }
+      } catch (e) {
+        // Weather fetch failed, continue with default message
+      }
+
+      // Fetch currency data
+      let currencyContext = "Currency rates: Data unavailable";
+      try {
+        const currencyResponse = await fetch(
+          "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"
+        );
+        if (currencyResponse.ok) {
+          const currencyData: any[] = await currencyResponse.json();
+          const usd = currencyData.find((rate) => rate.cc === "USD");
+          const eur = currencyData.find((rate) => rate.cc === "EUR");
+          if (usd && eur) {
+            currencyContext = `USD rate: ${usd.rate.toFixed(2)}, EUR rate: ${eur.rate.toFixed(2)}`;
+          }
+        }
+      } catch (e) {
+        // Currency fetch failed, continue with default message
+      }
+
+      // Format smart home context
+      const smartHomeContext = formatSmartHomeContext(appContext);
+
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -48,7 +150,15 @@ export function AIChatWidget() {
           messages: [
             {
               role: "system",
-              content: "You are PaciukHome AI assistant."
+              content: `You are PaciukHome AI assistant.
+You have access to live smart home data.
+
+Current dashboard data:
+${smartHomeContext}
+${weatherContext}
+${currencyContext}
+
+Answer naturally and use this data when relevant. You can discuss consumption, compare metrics, summarize usage, and help with planner tasks. Respond in Russian.`
             },
             {
               role: "user",

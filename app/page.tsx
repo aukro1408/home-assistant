@@ -1653,7 +1653,19 @@ export default function Home() {
       />
 
       {/* AI Chat Widget */}
-      <AIChatWidget />
+      <AIChatWidget 
+        appContext={{
+          electricityData,
+          waterData,
+          electricityPrice,
+          waterPrice,
+          plannerTasks,
+          electricityMonth,
+          electricityYear,
+          waterMonth,
+          waterYear,
+        }}
+      />
     </>
   );
 }
