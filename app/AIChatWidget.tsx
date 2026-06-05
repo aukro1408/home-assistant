@@ -8,19 +8,7 @@ type Message = {
   content: string;
 };
 
-type AppContext = {
-  electricityData: Record<string, { usage: number; cost: number; meterReading?: number }>;
-  waterData: Record<string, { usage: number; cost: number; meterReading?: number }>;
-  electricityPrice: string;
-  waterPrice: string;
-  plannerTasks: Record<string, Array<{ id: string; title: string; status: string }>>;
-  electricityMonth: number;
-  electricityYear: number;
-  waterMonth: number;
-  waterYear: number;
-};
-
-export function AIChatWidget({ appContext }: { appContext: AppContext }) {
+export function AIChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -49,27 +37,37 @@ export function AIChatWidget({ appContext }: { appContext: AppContext }) {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.NEXT_PUBLIC_OPENROUTER_API_KEY}`,
         },
-        body: JSON.stringify({ 
-          message: userMessage.content,
-          appContext 
+        body: JSON.stringify({
+          model: "openai/gpt-oss-120b:free",
+          messages: [
+            {
+              role: "system",
+              content: "You are PaciukHome AI assistant."
+            },
+            {
+              role: "user",
+              content: userMessage.content
+            }
+          ]
         }),
       });
 
       const data = await response.json();
 
-      if (data.reply) {
+      if (data.choices && data.choices[0] && data.choices[0].message) {
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: data.reply,
+          content: data.choices[0].message.content,
         };
         setMessages((prev) => [...prev, assistantMessage]);
-      } else if (data.error) {
+      } else {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
