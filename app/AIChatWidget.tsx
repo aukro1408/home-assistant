@@ -27,9 +27,12 @@ function formatSmartHomeContext(context: AppContext): string {
   const currentMonth = now.getMonth() + 1;
   const currentYear = now.getFullYear();
   
+  // Helper function to format year-month key
+  const ymKey = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+  
   // Get current month data
-  const elecKey = `${context.electricityYear}-${String(context.electricityMonth).padStart(2, '0')}`;
-  const waterKey = `${context.waterYear}-${String(context.waterMonth).padStart(2, '0')}`;
+  const elecKey = ymKey(context.electricityYear, context.electricityMonth);
+  const waterKey = ymKey(context.waterYear, context.waterMonth);
   
   const elecEntry = context.electricityData[elecKey];
   const waterEntry = context.waterData[waterKey];
@@ -52,11 +55,33 @@ function formatSmartHomeContext(context: AppContext): string {
     contextStr += `Electricity usage this month: No data recorded\n`;
   }
   
+  // Get water data - try current month first, then fallback to latest available
+  let waterUsageStr = 'No data recorded';
+  let waterCostStr = '—';
   if (waterEntry) {
-    contextStr += `Water usage this month: ${waterEntry.usage} m³ (cost: ${waterEntry.cost} UAH)\n`;
+    waterUsageStr = `${waterEntry.usage} m³`;
+    waterCostStr = `${waterEntry.cost} UAH`;
+    contextStr += `Water usage this month: ${waterUsageStr} (cost: ${waterCostStr})\n`;
     contextStr += `Water price: ${context.waterPrice} UAH/m³\n`;
   } else {
-    contextStr += `Water usage this month: No data recorded\n`;
+    // Try to find latest available water data
+    const waterKeys = Object.keys(context.waterData)
+      .filter(key => /^\d{4}-\d{2}$/.test(key))
+      .sort((a, b) => b.localeCompare(a));
+    
+    if (waterKeys.length > 0) {
+      const latestKey = waterKeys[0];
+      const latestEntry = context.waterData[latestKey];
+      if (latestEntry) {
+        const [year, month] = latestKey.split('-');
+        contextStr += `Water usage (latest: ${month}.${year}): ${latestEntry.usage} m³ (cost: ${latestEntry.cost} UAH)\n`;
+        contextStr += `Water price: ${context.waterPrice} UAH/m³\n`;
+      } else {
+        contextStr += `Water usage this month: No data recorded\n`;
+      }
+    } else {
+      contextStr += `Water usage this month: No data recorded\n`;
+    }
   }
   
   if (todayTasks.length > 0) {
